@@ -1,0 +1,112 @@
+// Reference model for the separately deployed Postgres service; not used by Sites.
+generator client {
+  provider = "prisma-client-js"
+}
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role { TRAVELLER OPERATOR ADMIN }
+enum ListingStatus { LIVE UNAVAILABLE HELD BOOKED EXPIRED CANCELLED }
+enum RequestStatus { PENDING OPERATOR_CONFIRMED PAYMENT_PENDING CONFIRMED CANCELLED REFUNDED }
+
+model User {
+  id        String    @id @default(cuid())
+  email     String    @unique
+  name      String?
+  role      Role      @default(TRAVELLER)
+  alerts    Alert[]
+  requests  Booking[]
+  listings  Listing[]
+  createdAt DateTime  @default(now())
+}
+
+model SourceAccount {
+  id              String    @id @default(cuid())
+  provider        String
+  externalOwnerId String
+  displayAllowed  Boolean   @default(false)
+  storeAllowed    Boolean   @default(false)
+  lastAttemptAt   DateTime?
+  lastSuccessAt   DateTime?
+  lastError       String?
+  listings        Listing[]
+  @@unique([provider, externalOwnerId])
+}
+
+model Listing {
+  id            String        @id @default(cuid())
+  operator      User?         @relation(fields: [operatorId], references: [id])
+  operatorId    String?
+  sourceAccount SourceAccount? @relation(fields: [sourceAccountId], references: [id])
+  sourceAccountId String?
+  sourceId      String?
+  fromCity      String
+  fromCode      String
+  fromLat       Float?
+  fromLng       Float?
+  toCity        String
+  toCode        String
+  toLat         Float?
+  toLng         Float?
+  departureAt   DateTime
+  arrivalAt     DateTime?
+  aircraft      String
+  tailNumber    String?
+  seats         Int
+  price         Decimal       @db.Decimal(12, 2)
+  currency      String        @default("EUR")
+  status        ListingStatus @default(LIVE)
+  lastSeenAt    DateTime?
+  requests      Booking[]
+  matches       AlertMatch[]
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  @@unique([sourceAccountId, sourceId])
+  @@index([fromCode, toCode, departureAt, status])
+  @@index([sourceAccountId, lastSeenAt])
+}
+
+model Alert {
+  id         String       @id @default(cuid())
+  user       User         @relation(fields: [userId], references: [id])
+  userId     String
+  fromCode   String?
+  toCode     String?
+  earliestAt DateTime?
+  latestAt   DateTime?
+  minSeats   Int          @default(1)
+  maxPrice   Decimal?     @db.Decimal(12, 2)
+  currency   String       @default("EUR")
+  active     Boolean      @default(true)
+  matches    AlertMatch[]
+  createdAt  DateTime     @default(now())
+}
+
+model AlertMatch {
+  id             String   @id @default(cuid())
+  alert          Alert    @relation(fields: [alertId], references: [id])
+  alertId        String
+  listing        Listing  @relation(fields: [listingId], references: [id])
+  listingId      String
+  deliveryStatus String   @default("PENDING")
+  createdAt      DateTime @default(now())
+  @@unique([alertId, listingId])
+}
+
+model Booking {
+  id              String        @id @default(cuid())
+  listing         Listing       @relation(fields: [listingId], references: [id])
+  listingId       String
+  user            User          @relation(fields: [userId], references: [id])
+  userId          String
+  amount          Decimal       @db.Decimal(12, 2)
+  currency        String        @default("EUR")
+  stripeSessionId String?       @unique
+  status          RequestStatus @default(PENDING)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  @@unique([listingId, userId])
+  @@index([userId, status])
+}
